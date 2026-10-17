@@ -1,0 +1,17 @@
+Port 22
+HostKey /etc/ssh/ssh_host_ed25519_key
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+# Certificats de la CA de test seulement, principal = nom du compte (comme le rôle step_ssh_host de la collection).
+TrustedUserCAKeys /etc/ssh/ca.pub
+AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u
+AuthorizedKeysFile none
+AllowUsers ops
+# La clé CA est montée depuis l'hôte (propriétaire différent): vérification de propriétaire inutile pour ce test.
+StrictModes no
+AllowTcpForwarding no
+X11Forwarding no
+# Journalise l'identité du certificat (ID "warpgate:<utilisateur>:<session>") à chaque connexion.
+LogLevel VERBOSE

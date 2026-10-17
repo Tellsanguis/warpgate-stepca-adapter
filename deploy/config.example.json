@@ -1,0 +1,27 @@
+{
+  "listen": ":8200",
+  "tls_cert": "/etc/warpgate-stepca-adapter/tls.crt",
+  "tls_key": "/etc/warpgate-stepca-adapter/tls.key",
+  "mount": "ssh",
+  "rate_per_minute": 60,
+  "ca": {
+    "url": "https://localhost:8443",
+    "root_file": "/etc/warpgate-stepca-adapter/root_ca.crt"
+  },
+  "tokens": [
+    {
+      "name": "warpgate",
+      "sha256": "<printf %s \"$JETON\" | sha256sum | cut -d' ' -f1>",
+      "roles": ["ops"]
+    }
+  ],
+  "roles": {
+    "ops": {
+      "provisioner": "warpgate-ops",
+      "key_file": "/etc/warpgate-stepca-adapter/warpgate-ops.jwe",
+      "password_file": "/etc/warpgate-stepca-adapter/warpgate-ops.pw",
+      "principals": ["ops"],
+      "max_ttl": "10m"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+/adapter
+*.test
+*.out
+coverage.*
+/integration/.work/
+/strix_runs/
+.env
+*.key
+*.pem

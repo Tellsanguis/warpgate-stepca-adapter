@@ -1,0 +1,26 @@
+# EXEMPLE de Quadlet rootless (à placer dans ~/.config/containers/systemd/ de l'utilisateur dédié).
+# Jamais testé avec Podman: les essais ont eu lieu avec Docker (voir README). À valider avant usage.
+[Unit]
+Description=Adaptateur de signature SSH Warpgate vers step-ca
+After=network-online.target
+
+[Container]
+Image=REGISTRE/warpgate-stepca-adapter@sha256:A-REMPLIR
+ContainerName=warpgate-stepca-adapter
+# Même hôte que step-ca (qui écoute en Network=host): l'adaptateur le joint sur localhost:8443.
+Network=host
+Volume=/etc/warpgate-stepca-adapter:/etc/warpgate-stepca-adapter:ro,Z
+Exec=-config /etc/warpgate-stepca-adapter/config.json
+UserNS=keep-id:uid=65532,gid=65532
+ReadOnly=true
+DropCapability=ALL
+NoNewPrivileges=true
+Memory=128m
+PidsLimit=64
+
+[Service]
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=default.target
