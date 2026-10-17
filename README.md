@@ -16,6 +16,7 @@ Contexte : `../Warpgate/docs/adaptateur-stepca.md` (spécification) et `security
 - Par rôle : provisioner step-ca, liste blanche de principals (un seul par certificat, jamais `root`), durée maximale.
 - Ed25519 seulement, `key_id` obligatoirement préfixé `warpgate:`, requêtes strictes (champs inconnus refusés).
 - Tout certificat renvoyé par la CA est **revérifié** avant d'être rendu : type, clé, key id, principals, expiration, signature par la clé CA connue.
+- Le certificat renvoyé ne porte que l'extension `permit-pty` : toute autre (forwarding de port, d'agent, X11, `permit-user-rc`) est refusée. Le modèle SSH du provisioner doit donc n'émettre que celle-là.
 - Le modèle SSH du provisioner (côté CA) garde le dernier mot sur les principals, même si l'adaptateur était compromis (prouvé par un test contre une vraie CA).
 - Échec fermé : toute anomalie de configuration, de CA ou de clé arrête le démarrage.
 - Quota de signatures **par jeton** (`rate_per_minute`, 60 par défaut) : un client bavard ne prive pas les autres.

@@ -39,6 +39,7 @@ Portée : le service `warpgate-stepca-adapter` (Go) qui reçoit les demandes de 
 | A2 Adaptateur compromis demandant root à la CA | Le modèle SSH du provisioner fixe les principals côté CA | `TestCATemplateHasLastWord` (CA réelle) |
 | A3 JSON ambigu, champs inconnus, données après l'objet | Décodage strict, `DisallowUnknownFields`, rejet des données en trop | `TestParseSignRequestRejects`, `FuzzParseSignRequest` |
 | A4 Certificat de la CA différent de la demande | Vérification complète : type, clé, key id, principals, expiration, `force-command`, signature | `TestSignRejectsBadCertificates` |
+| A4 Certificat avec des droits en plus (forwarding, user-rc) | Seule l'extension `permit-pty` est acceptée | `TestSignRejectsBadCertificates` (cas « extension ... »), `TestSignAcceptsPermitPtyOnlyOrNoExtension`, `TestHappyPathAgainstRealCA` |
 | A4 Certificat signé par une autre autorité | La clé CA est lue en TLS au démarrage et comparée explicitement | `TestSignRejectsBadCertificates` (cas « signé par une autre CA ») |
 | A4 Serveur CA usurpé | Racine de la CA épinglée, pas de proxy implicite, pas de redirection suivie | `TestNewCAClientStartup`, `TestSignCAFailures` |
 | A4 Réponse énorme ou lente | Taille bornée à 64 Kio, délais et annulation par contexte | `TestSignCAFailures`, `TestSignHonorsContext` |
@@ -70,5 +71,5 @@ Portée : le service `warpgate-stepca-adapter` (Go) qui reçoit les demandes de 
 | Date | Quoi | Résultat |
 |---|---|---|
 | 2026-10-20 | Tests unitaires (course), fuzzing, `govulncheck`, `staticcheck`, `gosec`, `hadolint`, `trivy`, intégration contre step-ca 0.30.2, bout en bout avec Warpgate 0.30.0 et un sshd cible | Tous passent (`make security`, `make e2e`) |
-| à faire | Passe Strix (clé de modèle requise) | `make strix` |
+| 2026-10-20 | Revue de code indépendante et revue manuelle de sécurité | 10 constats mineurs traités ou documentés |
 | à faire | Revue de sécurité complémentaire avant une première mise en production | |
