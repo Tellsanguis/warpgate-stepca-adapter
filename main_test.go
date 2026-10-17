@@ -163,3 +163,107 @@ func TestRunFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestHealthURL(t *testing.T) {
+	for listen, want := range map[string]string{
+		":8200":          "https://127.0.0.1:8200/healthz",
+		"0.0.0.0:8200":   "https://127.0.0.1:8200/healthz",
+		"[::]:8200":      "https://127.0.0.1:8200/healthz",
+		"10.0.0.5:8200":  "https://10.0.0.5:8200/healthz", // écoute sur une IP précise: la boucle locale ne répondrait pas
+		"[fd00::5]:8200": "https://[fd00::5]:8200/healthz",
+		"127.0.0.1:8200": "https://127.0.0.1:8200/healthz",
+	} {
+		got, err := healthURL(listen)
+		if err != nil || got != want {
+			t.Errorf("healthURL(%q) = %q, %v; attendu %q", listen, got, err, want)
+		}
+	}
+	if _, err := healthURL("pas-un-hote-port"); err == nil {
+		t.Error("une adresse sans port doit échouer")
+	}
+}
+
+// writeCert écrit une paire certificat/clé de numéro de série donné et force une date de modification distincte.
+func writeCert(t *testing.T, dir string, serial int64, mod time.Time) {
+	t.Helper()
+	k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tpl := &x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: "reload"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSNames: []string{"adapter"}}
+	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &k.PublicKey, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, _ := x509.MarshalPKCS8PrivateKey(k)
+	for name, data := range map[string][]byte{
+		"tls.crt": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		"tls.key": pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}),
+	} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, mod, mod); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func serialOf(t *testing.T, c *tls.Certificate) int64 {
+	t.Helper()
+	leaf, err := x509.ParseCertificate(c.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return leaf.SerialNumber.Int64()
+}
+
+// Renouvellement (Let's Encrypt): le nouveau certificat est servi sans redémarrage; un fichier cassé ne remplace jamais le bon.
+func TestCertReloader(t *testing.T) {
+	dir := t.TempDir()
+	logs := &bytes.Buffer{}
+	base := time.Now().Add(-time.Hour)
+	writeCert(t, dir, 1, base)
+	r, err := newCertReloader(filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key"), slog.New(slog.NewJSONHandler(logs, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur := func() int64 {
+		c, err := r.get(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return serialOf(t, c)
+	}
+	if got := cur(); got != 1 {
+		t.Fatalf("serial %d, attendu 1", got)
+	}
+	writeCert(t, dir, 2, base.Add(time.Minute))
+	if got := cur(); got != 2 {
+		t.Fatalf("après renouvellement: serial %d, attendu 2", got)
+	}
+	// Fichier corrompu: l'ancien certificat reste servi, l'erreur est journalisée une seule fois.
+	if err := os.WriteFile(filepath.Join(dir, "tls.crt"), []byte("corrompu"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(filepath.Join(dir, "tls.crt"), base.Add(2*time.Minute), base.Add(2*time.Minute))
+	for i := 0; i < 3; i++ {
+		if got := cur(); got != 2 {
+			t.Fatalf("fichier corrompu: serial %d, attendu 2 (ancien certificat)", got)
+		}
+	}
+	if n := strings.Count(logs.String(), "tls_reload_failed"); n != 1 {
+		t.Fatalf("erreur journalisée %d fois, attendu 1", n)
+	}
+	writeCert(t, dir, 3, base.Add(3*time.Minute))
+	if got := cur(); got != 3 {
+		t.Fatalf("après réparation: serial %d, attendu 3", got)
+	}
+	// Démarrage avec un certificat invalide: échec (pas de service sans certificat).
+	bad := t.TempDir()
+	_ = os.WriteFile(filepath.Join(bad, "tls.crt"), []byte("x"), 0o600)
+	_ = os.WriteFile(filepath.Join(bad, "tls.key"), []byte("x"), 0o600)
+	if _, err := newCertReloader(filepath.Join(bad, "tls.crt"), filepath.Join(bad, "tls.key"), slog.New(slog.NewJSONHandler(io.Discard, nil))); err == nil {
+		t.Fatal("démarrage possible avec un certificat invalide")
+	}
+}

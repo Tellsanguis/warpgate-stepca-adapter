@@ -33,7 +33,7 @@ type server struct {
 	signers   map[string]*roleSigner
 	tokens    []tokenEntry
 	log       *slog.Logger
-	signLimit *limiter
+	signLimit map[string]*limiter // un compteur par jeton: un client bavard ne prive pas les autres
 	failLimit *limiter
 	now       func() time.Time
 }
@@ -47,10 +47,11 @@ type tokenEntry struct {
 func newServer(cfg *Config, ca *caClient, signers map[string]*roleSigner, log *slog.Logger) *server {
 	s := &server{
 		cfg: cfg, ca: ca, signers: signers, log: log, now: time.Now,
-		signLimit: &limiter{max: cfg.RatePerMinute}, failLimit: &limiter{max: failedAuthLimit},
+		signLimit: map[string]*limiter{}, failLimit: &limiter{max: failedAuthLimit},
 	}
 	for _, t := range cfg.Tokens {
 		e := tokenEntry{name: t.Name, roles: map[string]bool{}}
+		s.signLimit[t.Name] = &limiter{max: cfg.RatePerMinute}
 		h, _ := hex.DecodeString(t.SHA256) // déjà validé par la configuration
 		copy(e.hash[:], h)
 		for _, r := range t.Roles {
@@ -159,7 +160,7 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if !s.signLimit.allow(s.now()) {
+	if !s.signLimit[tok.name].allow(s.now()) {
 		fail(http.StatusTooManyRequests, "denied", "limite_de_debit")
 		return
 	}

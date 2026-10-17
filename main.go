@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -53,10 +54,14 @@ func run(ctx context.Context, cfgPath string, log *slog.Logger) error {
 			return fmt.Errorf("rôle %q: %w", name, err)
 		}
 	}
+	certs, err := newCertReloader(cfg.TLSCert, cfg.TLSKey, log)
+	if err != nil {
+		return fmt.Errorf("certificat TLS: %w", err)
+	}
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           newServer(cfg, ca, signers, log).routes(),
-		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS13},
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS13, GetCertificate: certs.get},
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      40 * time.Second, // > signTimeout
@@ -66,7 +71,7 @@ func run(ctx context.Context, cfgPath string, log *slog.Logger) error {
 		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
 	}
 	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey) }()
+	go func() { errc <- srv.ListenAndServeTLS("", "") }()
 	log.Info("démarré", "event", "start", "listen", cfg.Listen, "ca", cfg.CA.URL, "roles", len(cfg.Roles), "tokens", len(cfg.Tokens))
 	select {
 	case err := <-errc:
@@ -84,21 +89,36 @@ func run(ctx context.Context, cfgPath string, log *slog.Logger) error {
 	return nil
 }
 
-// healthcheck interroge /healthz sur la boucle locale. La vérification du certificat est omise ici car on ne
+// healthURL vise l'adresse d'écoute réelle: la boucle locale seulement si le service écoute sur toutes les interfaces.
+func healthURL(listen string) (string, error) {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "", err
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+	return "https://" + net.JoinHostPort(host, port) + "/healthz", nil
+}
+
+// healthcheck interroge /healthz de son propre service. La vérification du certificat est omise ici car on ne
 // teste que la vivacité de son propre processus, sans rien envoyer de sensible.
 func healthcheck(cfgPath string) error {
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
 		return err
 	}
-	_, port, _ := net.SplitHostPort(cfg.Listen)
+	url, err := healthURL(cfg.Listen)
+	if err != nil {
+		return err
+	}
 	client := &http.Client{
 		Timeout: 3 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true}, // #nosec G402 -- sonde locale
 		},
 	}
-	resp, err := client.Get("https://" + net.JoinHostPort("127.0.0.1", port) + "/healthz") // #nosec G107 -- boucle locale
+	resp, err := client.Get(url) // #nosec G107 G704 -- adresse d'écoute de sa propre configuration
 	if err != nil {
 		return err
 	}
@@ -107,4 +127,46 @@ func healthcheck(cfgPath string) error {
 		return fmt.Errorf("healthz: statut %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// certReloader sert le certificat TLS en le relisant quand les fichiers changent (renouvellement Let's Encrypt par exemple),
+// sans redémarrage. Un nouveau fichier illisible ou incohérent est journalisé et l'ancien certificat reste servi.
+type certReloader struct {
+	certFile, keyFile string
+	log               *slog.Logger
+	mu                sync.Mutex
+	cur               *tls.Certificate
+	certMod, keyMod   time.Time
+}
+
+func newCertReloader(certFile, keyFile string, log *slog.Logger) (*certReloader, error) {
+	r := &certReloader{certFile: certFile, keyFile: keyFile, log: log}
+	if _, err := r.get(nil); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+func (r *certReloader) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sc, errC := os.Stat(r.certFile)
+	sk, errK := os.Stat(r.keyFile)
+	if errC == nil && errK == nil && (r.cur == nil || !sc.ModTime().Equal(r.certMod) || !sk.ModTime().Equal(r.keyMod)) {
+		r.certMod, r.keyMod = sc.ModTime(), sk.ModTime() // une seule tentative par changement de fichier
+		c, err := tls.LoadX509KeyPair(r.certFile, r.keyFile)
+		switch {
+		case err == nil:
+			r.cur = &c
+			r.log.Info("certificat TLS chargé", "event", "tls_reload")
+		case r.cur == nil:
+			return nil, err
+		default:
+			r.log.Error("nouveau certificat TLS refusé, l'ancien reste servi", "event", "tls_reload_failed", "err", err.Error())
+		}
+	}
+	if r.cur == nil {
+		return nil, errors.New("aucun certificat TLS chargé")
+	}
+	return r.cur, nil
 }

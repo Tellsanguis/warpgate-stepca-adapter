@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,20 +49,23 @@ func TestConfigValid(t *testing.T) {
 // Chaque mutation doit être refusée: la configuration échoue fermée.
 func TestConfigRejects(t *testing.T) {
 	cases := map[string]func(c *Config){
-		"listen sans port":      func(c *Config) { c.Listen = "localhost" },
-		"sans TLS":              func(c *Config) { c.TLSCert = "" },
-		"clé TLS lisible":       func(c *Config) { _ = os.Chmod(c.TLSKey, 0o644) },
-		"mount avec slash":      func(c *Config) { c.Mount = "ssh/../sys" },
-		"rate hors bornes":      func(c *Config) { c.RatePerMinute = 100000 },
-		"CA en http":            func(c *Config) { c.CA.URL = "http://ca.example:8443" },
-		"CA avec chemin":        func(c *Config) { c.CA.URL = "https://ca.example/x" },
-		"CA avec identifiants":  func(c *Config) { c.CA.URL = "https://u:p@ca.example" },
-		"CA sans racine":        func(c *Config) { c.CA.RootFile = "" },
-		"aucun jeton":           func(c *Config) { c.Tokens = nil },
-		"jeton hash court":      func(c *Config) { c.Tokens[0].SHA256 = "abc" },
-		"jeton hash majuscules": func(c *Config) { c.Tokens[0].SHA256 = strings.Repeat("A", 64) },
-		"jeton sans rôle":       func(c *Config) { c.Tokens[0].Roles = nil },
-		"jeton rôle inconnu":    func(c *Config) { c.Tokens[0].Roles = []string{"admin"} },
+		"listen sans port":          func(c *Config) { c.Listen = "localhost" },
+		"listen port non numérique": func(c *Config) { c.Listen = ":abc" },
+		"listen port trop grand":    func(c *Config) { c.Listen = "10.0.0.5:99999" },
+		"listen port nul":           func(c *Config) { c.Listen = "127.0.0.1:0" },
+		"sans TLS":                  func(c *Config) { c.TLSCert = "" },
+		"clé TLS lisible":           func(c *Config) { _ = os.Chmod(c.TLSKey, 0o644) },
+		"mount avec slash":          func(c *Config) { c.Mount = "ssh/../sys" },
+		"rate hors bornes":          func(c *Config) { c.RatePerMinute = 100000 },
+		"CA en http":                func(c *Config) { c.CA.URL = "http://ca.example:8443" },
+		"CA avec chemin":            func(c *Config) { c.CA.URL = "https://ca.example/x" },
+		"CA avec identifiants":      func(c *Config) { c.CA.URL = "https://u:p@ca.example" },
+		"CA sans racine":            func(c *Config) { c.CA.RootFile = "" },
+		"aucun jeton":               func(c *Config) { c.Tokens = nil },
+		"jeton hash court":          func(c *Config) { c.Tokens[0].SHA256 = "abc" },
+		"jeton hash majuscules":     func(c *Config) { c.Tokens[0].SHA256 = strings.Repeat("A", 64) },
+		"jeton sans rôle":           func(c *Config) { c.Tokens[0].Roles = nil },
+		"jeton rôle inconnu":        func(c *Config) { c.Tokens[0].Roles = []string{"admin"} },
 		"jetons hash en double": func(c *Config) {
 			c.Tokens = append(c.Tokens, TokenConfig{Name: "b", SHA256: hashA, Roles: []string{"ops"}})
 		},
@@ -113,5 +117,28 @@ func TestLoadConfigStrictJSON(t *testing.T) {
 	}
 	if _, err := loadConfig(filepath.Join(d, "absent.json")); err == nil {
 		t.Error("fichier absent: aurait dû échouer")
+	}
+}
+
+// Un `}` ou un `]` en trop après l'objet échappe à Decoder.More(): seul EOF prouve qu'il ne reste rien.
+func TestLoadConfigTrailingData(t *testing.T) {
+	raw, err := json.Marshal(testConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(extra string) string {
+		p := filepath.Join(t.TempDir(), "c.json")
+		if err := os.WriteFile(p, append(append([]byte{}, raw...), extra...), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	if _, err := loadConfig(write("\n")); err != nil {
+		t.Fatalf("configuration valide refusée: %v", err)
+	}
+	for _, extra := range []string{"}", "]", " }", "x", `{"a":1}`} {
+		if _, err := loadConfig(write(extra)); err == nil {
+			t.Errorf("données %q après l'objet acceptées", extra)
+		}
 	}
 }

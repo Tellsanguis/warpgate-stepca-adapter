@@ -215,13 +215,17 @@ func TestSignUpstreamFailureIsGeneric(t *testing.T) {
 
 func TestRateLimits(t *testing.T) {
 	h := newHarness(t)
-	h.s.signLimit.max = 3
+	h.s.signLimit["warpgate"].max = 3
 	codes := []int{}
 	for i := 0; i < 4; i++ {
 		codes = append(codes, h.sign(tokOps, "ops", body(t, nil)).Code)
 	}
 	if codes[2] != 200 || codes[3] != http.StatusTooManyRequests {
 		t.Fatalf("limite de signatures: %v", codes)
+	}
+	// Le quota est par jeton: un jeton à l'arrêt ne prive pas l'autre (le rôle "other" est autorisé pour le jeton "autre").
+	if code := h.sign(tokOther, "other", body(t, nil)).Code; code != 200 {
+		t.Fatalf("le second jeton est bloqué par le quota du premier: %d", code)
 	}
 	// Les échecs d'authentification sont limités, mais un jeton valide continue de fonctionner (pas de blocage global).
 	h2 := newHarness(t)

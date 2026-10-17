@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"time"
 )
 
@@ -72,7 +74,8 @@ func loadConfig(path string) (*Config, error) {
 	if err := dec.Decode(&c); err != nil {
 		return nil, fmt.Errorf("configuration illisible: %w", err)
 	}
-	if dec.More() {
+	// More() ne voit pas un `}` ou `]` en trop: seul EOF prouve qu'il ne reste rien après l'objet.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("configuration: données après l'objet JSON")
 	}
 	if err := c.validate(); err != nil {
@@ -82,8 +85,9 @@ func loadConfig(path string) (*Config, error) {
 }
 
 func (c *Config) validate() error {
-	if _, port, err := net.SplitHostPort(c.Listen); err != nil || port == "" {
-		return fmt.Errorf("listen doit être host:port")
+	_, port, err := net.SplitHostPort(c.Listen)
+	if n, convErr := strconv.Atoi(port); err != nil || convErr != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("listen doit être hôte:port avec un port entre 1 et 65535")
 	}
 	if c.TLSCert == "" || c.TLSKey == "" {
 		return fmt.Errorf("tls_cert et tls_key sont obligatoires (pas de HTTP en clair)")
