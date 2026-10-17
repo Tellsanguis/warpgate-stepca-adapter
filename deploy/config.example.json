@@ -1,7 +1,7 @@
 {
-  "listen": ":8200",
-  "tls_cert": "/etc/warpgate-stepca-adapter/tls.crt",
-  "tls_key": "/etc/warpgate-stepca-adapter/tls.key",
+  "listen": "<IP de la VM>:8200",
+  "tls_cert": "/etc/warpgate-stepca-adapter/fullchain.pem",
+  "tls_key": "/etc/warpgate-stepca-adapter/privkey.pem",
   "mount": "ssh",
   "rate_per_minute": 60,
   "ca": {

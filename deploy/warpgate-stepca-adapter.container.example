@@ -8,6 +8,8 @@ After=network-online.target
 Image=REGISTRE/warpgate-stepca-adapter@sha256:A-REMPLIR
 ContainerName=warpgate-stepca-adapter
 # Même hôte que step-ca (qui écoute en Network=host): l'adaptateur le joint sur localhost:8443.
+# Avec Network=host, mettre dans config.json une IP précise pour `listen` (pas ":8200") et filtrer le port avec nftables.
+# Le certificat TLS (Let's Encrypt) est relu automatiquement: monter le dossier, pas un fichier unique, pour voir les renouvellements.
 Network=host
 Volume=/etc/warpgate-stepca-adapter:/etc/warpgate-stepca-adapter:ro,Z
 Exec=-config /etc/warpgate-stepca-adapter/config.json
