@@ -31,6 +31,12 @@ tar -C "$ROOT" --exclude=.git --exclude=strix_runs --exclude=integration/.work -
 # La télémétrie de Strix est active par défaut (STRIX_TELEMETRY, v1.7.0): on la coupe.
 export STRIX_TELEMETRY=0
 
+# Strix enregistre sa configuration, clé d'API comprise, dans ~/.strix/cli-config.json (constaté en 1.7.0):
+# HOME jetable, détruit à la sortie, pour que la clé ne persiste pas sur le disque.
+STRIX_HOME="$(mktemp -d "${WORK_ROOT:-/tmp}/adapter-strix-home.XXXXXX")"
+trap 'shred -u "$STRIX_HOME"/.strix/cli-config.json 2>/dev/null; rm -rf "$SRC" "$STRIX_HOME"' EXIT
+export HOME="$STRIX_HOME"
+
 INSTRUCTION="Périmètre strict: le code source de ce répertoire, un service Go qui émule l'API de signature SSH de Vault devant step-ca. \
 Chercher: contournement d'authentification ou d'autorisation (jeton, rôle, principal), injection ou confusion de parsing dans la validation \
 des requêtes, fuite de secret dans les journaux ou erreurs, faiblesse TLS, déni de service, mauvaise vérification du certificat renvoyé par la CA, \
@@ -39,5 +45,6 @@ condition de course. Ne cibler aucun hôte distant ni aucune autre machine. Ne p
 echo "Strix v$(strix --version 2>/dev/null | tr -dc '0-9.') | mode=$MODE | modèle=$STRIX_LLM | télémétrie coupée"
 echo "Le code source est envoyé au fournisseur du modèle (sauf modèle local). Ctrl+C pour annuler dans 5 s."
 sleep 5
-cd "$ROOT"
+# Les résultats (strix_runs/) vont dans STRIX_OUT, hors du dépôt si possible (ils contiennent des détails d'exploitation).
+mkdir -p "${STRIX_OUT:-$ROOT}" && cd "${STRIX_OUT:-$ROOT}"
 strix -n --target "$SRC" --scan-mode "$MODE" --instruction "$INSTRUCTION"

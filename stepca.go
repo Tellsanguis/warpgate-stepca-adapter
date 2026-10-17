@@ -232,6 +232,13 @@ func (c *caClient) check(cert *ssh.Certificate, v *validated) error {
 	if _, ok := cert.CriticalOptions["force-command"]; ok {
 		return errors.New("certificat refusé: force-command")
 	}
+	// Seule permit-pty est attendue (modèle SSH du provisioner). Toute autre extension (forwarding de port, d'agent, X11, user-rc)
+	// élargirait les droits de la session: refusée. shortcut: liste fixe dans le code, à passer en configuration si un rôle en a besoin.
+	for ext := range cert.Extensions {
+		if ext != "permit-pty" {
+			return fmt.Errorf("certificat refusé: extension %q non prévue", ext)
+		}
+	}
 	// CheckCert vérifie la signature mais pas QUI a signé: l'autorité doit être contrôlée à part.
 	if !c.isUserCA(cert.SignatureKey) {
 		return errors.New("certificat refusé: signé par une autorité inconnue")

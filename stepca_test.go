@@ -349,6 +349,23 @@ func TestSignRejectsBadCertificates(t *testing.T) {
 		"force-command": func(f *fakeCA) {
 			f.before = func(c *ssh.Certificate) { c.CriticalOptions = map[string]string{"force-command": "/bin/sh"} }
 		},
+		"extension permit-port-forwarding": func(f *fakeCA) {
+			f.before = func(c *ssh.Certificate) {
+				c.Extensions = map[string]string{"permit-pty": "", "permit-port-forwarding": ""}
+			}
+		},
+		"extension permit-agent-forwarding": func(f *fakeCA) {
+			f.before = func(c *ssh.Certificate) { c.Extensions = map[string]string{"permit-agent-forwarding": ""} }
+		},
+		"extension permit-X11-forwarding": func(f *fakeCA) {
+			f.before = func(c *ssh.Certificate) { c.Extensions = map[string]string{"permit-X11-forwarding": ""} }
+		},
+		"extension permit-user-rc": func(f *fakeCA) {
+			f.before = func(c *ssh.Certificate) { c.Extensions = map[string]string{"permit-pty": "", "permit-user-rc": ""} }
+		},
+		"extension inconnue": func(f *fakeCA) {
+			f.before = func(c *ssh.Certificate) { c.Extensions = map[string]string{"x-evil@example": ""} }
+		},
 		"option critique inconnue": func(f *fakeCA) {
 			f.before = func(c *ssh.Certificate) { c.CriticalOptions = map[string]string{"x-evil": ""} }
 		},
@@ -452,5 +469,19 @@ func TestNewCAClientStartup(t *testing.T) {
 		if _, err := newCAClient(context.Background(), CAConfig{URL: f.srv.URL, RootFile: f.root(t)}); err == nil {
 			t.Errorf("%s: aurait dû échouer", name)
 		}
+	}
+}
+
+// Le modèle SSH normal (permit-pty seule) ou sans aucune extension reste accepté.
+func TestSignAcceptsPermitPtyOnlyOrNoExtension(t *testing.T) {
+	for name, ext := range map[string]map[string]string{"permit-pty": {"permit-pty": ""}, "aucune": nil} {
+		t.Run(name, func(t *testing.T) {
+			f := newFakeCA(t)
+			f.before = func(c *ssh.Certificate) { c.Extensions = ext }
+			rs, _ := loadRoleSigner(f.prov.role)
+			if _, err := f.client(t).sign(context.Background(), rs, validRequest(t)); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
