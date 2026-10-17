@@ -31,6 +31,8 @@ type Config struct {
 	TLSKey        string                `json:"tls_key"`
 	Mount         string                `json:"mount"`
 	RatePerMinute int                   `json:"rate_per_minute"`
+	MaxConns      int                   `json:"max_conns"`        // connexions simultanées au total (défaut 128)
+	MaxConnsPerIP int                   `json:"max_conns_per_ip"` // par adresse IP source (défaut 32)
 	CA            CAConfig              `json:"ca"`
 	Tokens        []TokenConfig         `json:"tokens"`
 	Roles         map[string]RoleConfig `json:"roles"`
@@ -103,6 +105,18 @@ func (c *Config) validate() error {
 	}
 	if c.RatePerMinute < 1 || c.RatePerMinute > 600 {
 		return fmt.Errorf("rate_per_minute hors de 1..600")
+	}
+	for _, l := range []struct {
+		v    *int
+		def  int
+		name string
+	}{{&c.MaxConns, 128, "max_conns"}, {&c.MaxConnsPerIP, 32, "max_conns_per_ip"}} {
+		if *l.v == 0 {
+			*l.v = l.def
+		}
+		if *l.v < 1 || *l.v > 10000 {
+			return fmt.Errorf("%s hors de 1..10000", l.name)
+		}
 	}
 	u, err := url.Parse(c.CA.URL)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil ||

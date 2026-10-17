@@ -485,3 +485,62 @@ func TestSignAcceptsPermitPtyOnlyOrNoExtension(t *testing.T) {
 		})
 	}
 }
+
+// Fuzzing de la dernière barrière: pour des certificats SIGNÉS par la bonne CA (la signature est donc toujours valable) mais aux
+// champs quelconques, check() ne doit jamais accepter autre chose que ce qui a été demandé.
+func FuzzCheckCertificate(f *testing.F) {
+	caPub, caPriv, _ := ed25519.GenerateKey(rand.Reader)
+	ca, _ := ssh.NewSignerFromKey(caPriv)
+	caKey, _ := ssh.NewPublicKey(caPub)
+	userPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	userKey, _ := ssh.NewPublicKey(userPub)
+	now := time.Unix(1_800_000_000, 0)
+	c := &caClient{userCAs: []ssh.PublicKey{caKey}, now: func() time.Time { return now }}
+	v := &validated{Key: userKey, Principal: "ops", KeyID: "warpgate:alice:1", TTL: 5 * time.Minute}
+
+	f.Add(uint32(1), "warpgate:alice:1", "ops", "", uint64(now.Unix()-60), uint64(now.Unix()+300), "permit-pty", "")
+	f.Add(uint32(1), "warpgate:alice:1", "ops", "root", uint64(0), uint64(1<<63+10), "permit-port-forwarding", "force-command")
+	f.Add(uint32(2), "x", "", "", uint64(1), uint64(ssh.CertTimeInfinity), "", "source-address")
+	f.Fuzz(func(t *testing.T, certType uint32, keyID, p1, p2 string, after, before uint64, ext, crit string) {
+		cert := &ssh.Certificate{Key: userKey, Serial: 1, CertType: certType, KeyId: keyID, ValidAfter: after, ValidBefore: before}
+		for _, p := range []string{p1, p2} {
+			if p != "" {
+				cert.ValidPrincipals = append(cert.ValidPrincipals, p)
+			}
+		}
+		if ext != "" {
+			cert.Extensions = map[string]string{ext: ""}
+		}
+		if crit != "" {
+			cert.CriticalOptions = map[string]string{crit: ""}
+		}
+		if err := cert.SignCert(rand.Reader, ca); err != nil {
+			t.Skip()
+		}
+		if c.check(cert, v) != nil {
+			return
+		}
+		switch {
+		case cert.CertType != ssh.UserCert:
+			t.Fatalf("type %d accepté", cert.CertType)
+		case cert.KeyId != v.KeyID:
+			t.Fatalf("key id %q accepté", cert.KeyId)
+		case len(cert.ValidPrincipals) != 1 || cert.ValidPrincipals[0] != v.Principal:
+			t.Fatalf("principals %v acceptés", cert.ValidPrincipals)
+		case cert.ValidBefore == ssh.CertTimeInfinity || cert.ValidBefore > uint64(now.Add(v.TTL+certSkew).Unix()) || cert.ValidBefore <= uint64(now.Unix()):
+			t.Fatalf("validité [%d, %d] acceptée", cert.ValidAfter, cert.ValidBefore)
+		case cert.ValidAfter > uint64(now.Unix()):
+			t.Fatalf("certificat pas encore valable accepté (ValidAfter %d)", cert.ValidAfter)
+		}
+		for e := range cert.Extensions {
+			if e != "permit-pty" {
+				t.Fatalf("extension %q acceptée", e)
+			}
+		}
+		for o := range cert.CriticalOptions {
+			if o != "source-address" {
+				t.Fatalf("option critique %q acceptée", o)
+			}
+		}
+	})
+}

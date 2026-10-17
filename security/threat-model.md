@@ -30,6 +30,8 @@ Portée : le service `warpgate-stepca-adapter` (Go) qui reçoit les demandes de 
 | A1 Jeton deviné ou comparé par temps de réponse | Comparaison des empreintes SHA-256 en temps constant, sur tous les jetons sans sortie anticipée | `TestMultipleTokensAllCompared`, `TestAuthDenied` |
 | A1 Oracle de jeton ou de rôle | Réponse identique (403) pour jeton absent, faux, rôle inconnu ou interdit | `TestAuthDenied` |
 | A1 Force brute, inondation | Limite d'échecs (429), quota de signatures **par jeton** et par minute, tailles et délais bornés | `TestRateLimits`, `TestSignRejections` |
+| A1 Épuisement des connexions (client lent ou inondeur) | Plafond de connexions simultanées au total et par IP source, délais de lecture bornés | `TestListenerPerIPLimit`, `TestListenerGlobalLimit` |
+| A4 Certificat de la CA accepté alors qu'un champ sort de la politique | Fuzzing de `check()` sur des certificats signés par la bonne CA | `FuzzCheckCertificate` |
 | A1 Certificat TLS expiré après renouvellement | Relecture des fichiers à chaque changement, l'ancien certificat reste servi si le nouveau est invalide | `TestCertReloader` |
 | Exploitation: conteneur « unhealthy » à tort | La sonde de santé vise l'adresse d'écoute réelle | `TestHealthURL` |
 | A2 Principal interdit (root, autre compte) | Liste blanche de principals par rôle, `root` refusé en dur, un seul principal | `TestParseSignRequestRejects`, `FuzzParseSignRequest`, `TestConfigRejects` |
@@ -61,7 +63,7 @@ Portée : le service `warpgate-stepca-adapter` (Go) qui reçoit les demandes de 
 7. **Vulnérabilité signalée par `govulncheck`** : GO-2026-5932 (`golang.org/x/crypto/openpgp`, sans correctif). Le paquet n'est pas importé et n'est pas appelé ; à revérifier à chaque mise à jour.
 8. **Le journal part sur la sortie standard** : son intégrité dépend du collecteur (journald puis Graylog).
 9. **Falsification d'attribution par un jeton volé** : un détenteur du jeton peut choisir n'importe quel nom dans `warpgate:<nom>:<session>` (le préfixe est contrôlé, pas le reste). L'attribution des certificats n'est fiable que tant que le jeton l'est.
-10. **Connexions simultanées non limitées** et journal de refus non échantillonné : un inondeur réseau peut faire grossir le journal ; le filtrage IP en amont (nftables, FortiGate) est la parade.
+10. **Journal de refus non échantillonné** : un inondeur réseau peut faire grossir le journal d'audit (les refus de connexion, eux, sont limités à 5 lignes par minute). Les connexions simultanées sont plafonnées (128 au total, 32 par IP), mais ce plafond est un garde-fou : le filtrage IP en amont (nftables, FortiGate) reste la vraie parade.
 11. **Le trajet Warpgate vers l'adaptateur** : Warpgate 0.30.0 ne vérifie que les racines publiques. Avec un certificat **Let's Encrypt** sur un nom public, la vérification TLS fonctionne (`tls_skip_verify` à faux) et ce risque disparaît. Avec un certificat de CA privée, il faudrait `tls_skip_verify` : homme du milieu possible sur ce segment, à compenser par filtrage IP strict, rotation courte du jeton et vérification des certificats par Warpgate lui-même.
 12. **Clés JSON dupliquées** : la dernière valeur l'emporte (`encoding/json`). Sans effet exploitable : l'adaptateur valide et signe la même valeur finale, et l'accès d'un utilisateur est fixé par ses rôles Warpgate. Un attaquant sans jeton n'atteint pas ce code ; avec un jeton, il obtient au mieux les principals déjà autorisés pour ce jeton.
 13. **Un client unique** : Ed25519 et préfixe `warpgate:` sont des choix fixés dans le code (`shortcut:` commentés).

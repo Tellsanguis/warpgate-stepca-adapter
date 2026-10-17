@@ -19,6 +19,7 @@ Contexte : `../Warpgate/docs/adaptateur-stepca.md` (spécification) et `security
 - Le certificat renvoyé ne porte que l'extension `permit-pty` : toute autre (forwarding de port, d'agent, X11, `permit-user-rc`) est refusée. Le modèle SSH du provisioner doit donc n'émettre que celle-là.
 - Le modèle SSH du provisioner (côté CA) garde le dernier mot sur les principals, même si l'adaptateur était compromis (prouvé par un test contre une vraie CA).
 - Échec fermé : toute anomalie de configuration, de CA ou de clé arrête le démarrage.
+- Connexions simultanées plafonnées au total (`max_conns`, 128 par défaut) et par IP source (`max_conns_per_ip`, 32) : au-delà, la connexion est fermée tout de suite, les connexions déjà établies ne sont jamais coupées.
 - Quota de signatures **par jeton** (`rate_per_minute`, 60 par défaut) : un client bavard ne prive pas les autres.
 - Le certificat TLS de l'adaptateur est relu quand ses fichiers changent (renouvellement Let's Encrypt) : pas de redémarrage. Un nouveau fichier invalide est journalisé et l'ancien certificat reste servi.
 
@@ -27,7 +28,7 @@ Contexte : `../Warpgate/docs/adaptateur-stepca.md` (spécification) et `security
 ```bash
 make init-cache     # une fois: volume de cache Go
 make test           # tests unitaires avec détecteur de courses
-make fuzz           # fuzzing de l'analyse des requêtes (30 s par cible)
+make fuzz           # fuzzing de l'analyse des requêtes et de la vérification du certificat de la CA (30 s par cible)
 make integration    # vrai step-ca éphémère + adaptateur durci (voir integration/README.md)
 make e2e            # + Warpgate 0.30.0 réel et une cible sshd (Docker local, réseau interne)
 make security       # tout: format, vet, tests, fuzz, govulncheck, staticcheck, gosec, hadolint, trivy

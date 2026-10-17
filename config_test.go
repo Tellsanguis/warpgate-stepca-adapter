@@ -41,7 +41,7 @@ func TestConfigValid(t *testing.T) {
 	if err := c.validate(); err != nil {
 		t.Fatal(err)
 	}
-	if c.RatePerMinute != 60 || c.Roles["ops"].maxTTL.Minutes() != 10 {
+	if c.RatePerMinute != 60 || c.MaxConns != 128 || c.MaxConnsPerIP != 32 || c.Roles["ops"].maxTTL.Minutes() != 10 {
 		t.Fatalf("valeurs par défaut/analysées incorrectes: %+v", c)
 	}
 }
@@ -57,6 +57,9 @@ func TestConfigRejects(t *testing.T) {
 		"clé TLS lisible":           func(c *Config) { _ = os.Chmod(c.TLSKey, 0o644) },
 		"mount avec slash":          func(c *Config) { c.Mount = "ssh/../sys" },
 		"rate hors bornes":          func(c *Config) { c.RatePerMinute = 100000 },
+		"max_conns trop grand":      func(c *Config) { c.MaxConns = 100000 },
+		"max_conns négatif":         func(c *Config) { c.MaxConns = -1 },
+		"max par IP trop grand":     func(c *Config) { c.MaxConnsPerIP = 100000 },
 		"CA en http":                func(c *Config) { c.CA.URL = "http://ca.example:8443" },
 		"CA avec chemin":            func(c *Config) { c.CA.URL = "https://ca.example/x" },
 		"CA avec identifiants":      func(c *Config) { c.CA.URL = "https://u:p@ca.example" },

@@ -70,8 +70,12 @@ func run(ctx context.Context, cfgPath string, log *slog.Logger) error {
 		// HTTP/1.1 seulement: un client unique (Warpgate) n'a pas besoin de HTTP/2, et on retire cette surface d'attaque.
 		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){},
 	}
+	ln, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return err
+	}
 	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServeTLS("", "") }()
+	go func() { errc <- srv.ServeTLS(newLimitedListener(ln, cfg.MaxConns, cfg.MaxConnsPerIP, log), "", "") }()
 	log.Info("démarré", "event", "start", "listen", cfg.Listen, "ca", cfg.CA.URL, "roles", len(cfg.Roles), "tokens", len(cfg.Tokens))
 	select {
 	case err := <-errc:
