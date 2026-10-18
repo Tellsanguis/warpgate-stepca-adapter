@@ -3,10 +3,10 @@ name: e2e
 # Contrôles qui exigent un démon Docker : lint et analyse de l'image, intégration contre un vrai step-ca,
 # bout en bout avec Warpgate et une cible sshd. Mêmes déclencheurs que ci.yml (code et dépendances seulement).
 #
-# Prérequis : un runner en mode hôte avec Docker (le Makefile monte le dossier du dépôt dans des conteneurs,
-# ce qui suppose que le chemin de travail du job existe sur l'hôte Docker), avec accès aux registres
-# (docker.io, ghcr.io, gcr.io). Ce job est ignoré tant que la variable de dépôt DOCKER_RUNNER n'est pas
-# définie (valeur : l'étiquette de ce runner). Non validé sur un vrai runner : à essayer d'abord à la main.
+# GitHub : tourne tel quel sur ubuntu-latest (Docker et accès aux registres inclus).
+# Forgejo : il faut un runner en mode hôte avec Docker (le Makefile monte le dossier du dépôt dans des conteneurs,
+# ce qui suppose que le chemin de travail du job existe sur l'hôte Docker). Le job est ignoré tant que la variable
+# de dépôt DOCKER_RUNNER n'est pas définie (valeur : l'étiquette de ce runner). Non validé sur un vrai runner.
 on:
   push:
     branches: [main]
@@ -17,7 +17,7 @@ on:
       - Dockerfile
       - Makefile
       - integration/**
-      - .forgejo/workflows/**
+      - .github/workflows/**
   pull_request:
     paths:
       - '**.go'
@@ -26,8 +26,11 @@ on:
       - Dockerfile
       - Makefile
       - integration/**
-      - .forgejo/workflows/**
+      - .github/workflows/**
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -35,11 +38,11 @@ concurrency:
 
 jobs:
   docker:
-    if: ${{ vars.DOCKER_RUNNER != '' }}
-    runs-on: ${{ vars.DOCKER_RUNNER }}
+    if: ${{ github.server_url == 'https://github.com' || vars.DOCKER_RUNNER != '' }}
+    runs-on: ${{ vars.DOCKER_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make init-cache
       - run: make hadolint scan integration e2e
       - name: Nettoyage

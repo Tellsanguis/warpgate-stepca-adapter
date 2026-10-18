@@ -1,5 +1,6 @@
 name: ci
 
+# Fonctionne tel quel sur GitHub Actions et sur Forgejo Actions (qui lit aussi .github/workflows).
 # Se déclenche seulement quand le code, ses dépendances, l'image ou les tests changent : pas pour la documentation.
 # Une mise à jour de dépendance (go.mod, go.sum) ou d'image (Dockerfile, Makefile) passe donc par ce contrôle.
 on:
@@ -12,7 +13,7 @@ on:
       - Dockerfile
       - Makefile
       - integration/**
-      - .forgejo/workflows/**
+      - .github/workflows/**
   pull_request:
     paths:
       - '**.go'
@@ -21,7 +22,10 @@ on:
       - Dockerfile
       - Makefile
       - integration/**
-      - .forgejo/workflows/**
+      - .github/workflows/**
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -30,12 +34,13 @@ concurrency:
 jobs:
   go:
     # Le job tourne dans l'image Go épinglée (la même que le Makefile) : aucun accès Docker nécessaire.
-    runs-on: docker
+    # GitHub : ubuntu-latest. Forgejo : définir la variable de dépôt CI_RUNNER (étiquette du runner, par exemple docker).
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     container:
       image: golang@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # GORUN vide : les cibles du Makefile s'exécutent directement dans ce conteneur (voir le Makefile).
       # Format, vet, tests avec détecteur de courses, fuzzing court, govulncheck, staticcheck, gosec.
       - run: make GORUN= fmt vet test fuzz vuln lint sec
