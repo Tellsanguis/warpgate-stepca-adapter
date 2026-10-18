@@ -22,7 +22,7 @@ CACHE := warpgate-adapter-gocache
 GORUN = docker run --rm --user $(UID):$(GID) -e HOME=/tmp -e GOPATH=/cache/go -e GOCACHE=/cache/build \
         -e GOFLAGS=-mod=readonly -e CGO_ENABLED=1 -v $(CACHE):/cache -v "$(CURDIR)":/src:ro -w /src $(GO_IMAGE)
 
-.PHONY: demo e2e help init-cache tidy fmt vet test cover fuzz vuln lint sec build image hadolint scan integration security strix
+.PHONY: demo demo-test e2e help init-cache tidy fmt vet test cover fuzz vuln lint sec build image hadolint scan integration security strix
 
 help: ## Liste des commandes
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
@@ -83,6 +83,9 @@ e2e: build ## Bout en bout: Warpgate 0.30.0 réel + adaptateur + step-ca + sshd 
 
 demo: build ## Démo locale à essayer à la main: https://localhost:8888 et ssh -p 2222 (Ctrl+C supprime tout)
 	E2E=1 DEMO=1 WARPGATE_IMAGE=$(WARPGATE_IMAGE) STEPCA_IMAGE=$(STEPCA_IMAGE) GO_IMAGE=$(GO_IMAGE) UID_GID=$(UID):$(GID) CACHE=$(CACHE) ./integration/run.sh
+
+demo-test: build ## Teste la démo sans intervention : vrai client ssh et requête web, puis supprime tout
+	E2E=1 DEMO=1 DEMO_TEST=1 WARPGATE_IMAGE=$(WARPGATE_IMAGE) STEPCA_IMAGE=$(STEPCA_IMAGE) GO_IMAGE=$(GO_IMAGE) UID_GID=$(UID):$(GID) CACHE=$(CACHE) ./integration/run.sh
 
 security: fmt vet test fuzz vuln lint sec hadolint scan ## Toute la chaîne de sécurité (hors Strix)
 

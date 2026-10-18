@@ -35,6 +35,7 @@ make integration    # vrai step-ca éphémère + adaptateur durci (voir integrat
 make e2e            # + Warpgate 0.30.0 réel et une cible sshd (Docker local, réseau interne)
 make security       # tout: format, vet, tests, fuzz, govulncheck, staticcheck, gosec, hadolint, trivy
 make build          # image warpgate-stepca-adapter:dev (environ 18 Mo, sans shell, non root)
+make demo-test     # la démo, testée sans intervention avec un vrai client ssh (utilisé par la CI)
 make demo          # environnement à essayer à la main : navigateur et ssh (voir « Essayer à la main »)
 make strix          # passe Strix (clé de modèle requise)
 ```

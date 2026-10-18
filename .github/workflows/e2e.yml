@@ -1,7 +1,7 @@
 name: e2e
 
 # Contrôles qui exigent un démon Docker : lint et analyse de l'image, intégration contre un vrai step-ca,
-# bout en bout avec Warpgate et une cible sshd. Mêmes déclencheurs que ci.yml (code et dépendances seulement).
+# bout en bout avec Warpgate et une cible sshd, test de la démo avec un vrai client ssh. Mêmes déclencheurs que ci.yml (code et dépendances seulement).
 #
 # GitHub : tourne tel quel sur ubuntu-latest (Docker et accès aux registres inclus).
 # Forgejo : il faut un runner en mode hôte avec Docker (le Makefile monte le dossier du dépôt dans des conteneurs,
@@ -45,6 +45,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make init-cache
       - run: make hadolint scan integration e2e
+      # La démo (make demo) est démarrée sans intervention, puis testée avec le vrai client ssh du runner et une requête web.
+      - run: make demo-test
       - name: Nettoyage
         if: ${{ always() }}
         run: docker volume rm warpgate-adapter-gocache || true

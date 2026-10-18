@@ -133,7 +133,7 @@ if [ "${E2E:-0}" = 1 ]; then
   }
   if [ "$DEMO" = 1 ]; then
     e2e normal -run 'TestProvisionAndBackendHealth' >/dev/null || { for c in "$WG-$RUN" "$AD-$RUN"; do docker logs "$c" 2>&1 | tail -15; done; echo "configuration de Warpgate impossible" >&2; exit 1; }
-    cat <<EOF
+    if [ "${DEMO_TEST:-0}" != 1 ]; then cat <<EOF
 
 ================================================================================
  DÉMO PRÊTE (tout est local, rien ne sort de votre machine, Ctrl+C pour tout supprimer)
@@ -155,6 +155,31 @@ if [ "${E2E:-0}" = 1 ]; then
    docker logs $AD-$RUN 2>&1 | grep '"event":"sign"'  # journal d'audit de l'adaptateur
 ================================================================================
 EOF
+    fi
+    if [ "${DEMO_TEST:-0}" = 1 ]; then
+      echo "== test de la démo : navigateur simulé (curl) et vrai client ssh"
+      ASK="$WORK/askpass.sh"; printf '#!/bin/sh\necho "%s"\n' "$WG_PASS" > "$ASK"; chmod 700 "$ASK"
+      fail() { echo "ÉCHEC démo: $*" >&2; for c in "$WG-$RUN" "$SSHD-$RUN" "$AD-$RUN"; do echo "--- $c" >&2; docker logs "$c" 2>&1 | tail -15 >&2; done; exit 1; }
+      sshw() { # $1 = cible, le reste = commande distante ; mot de passe fourni par SSH_ASKPASS (OpenSSH 8.4 ou plus)
+        local t="$1"; shift
+        SSH_ASKPASS="$ASK" SSH_ASKPASS_REQUIRE=force DISPLAY=:0 timeout 40 ssh -p "$SP" -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=15 \
+          -o PreferredAuthentications=password,keyboard-interactive "admin:$t@localhost" "$@" </dev/null
+      }
+      [ "$(curl -sk -m 15 -o /dev/null -w '%{http_code}' "https://localhost:$HP/@warpgate")" = 200 ] || fail "interface web injoignable"
+      out="$(sshw sshd-target id -un 2>&1)" || fail "ssh vers sshd-target a échoué: $out"
+      [ "$out" = ops ] || fail "sshd-target: compte \"$out\", attendu ops"
+      for t in sshd-badprincipal sshd-forbiddenrole sshd-blockedpath; do
+        out="$(sshw "$t" id -un 2>&1)" || true
+        [ "$out" != ops ] || fail "$t: la cible piégée a atteint le compte ops"
+      done
+      SSHLOG="$(docker logs "$SSHD-$RUN" 2>&1)"
+      printf '%s\n' "$SSHLOG" | grep -qE 'Accepted publickey for ops from [^ ]+ port [0-9]+ ssh2: ED25519-CERT SHA256:[^ ]+ ID warpgate:admin:[^ ]+ \(serial [0-9]+\) CA ' || fail "aucun certificat accepté dans le journal de sshd"
+      if printf '%s\n' "$SSHLOG" | grep -qE 'Accepted .* for (postgres|root)'; then fail "connexion acceptée pour un compte interdit"; fi
+      docker logs "$AD-$RUN" 2>&1 | grep -q '"event":"sign","result":"ok"' || fail "aucune signature dans le journal de l'adaptateur"
+      echo "DEMO OK"
+      exit 0
+    fi
     sleep 2147483647 & wait $! # `wait` laisse Ctrl+C déclencher le nettoyage tout de suite
   fi
   e2e normal || { for c in "$WG-$RUN" "$SSHD-$RUN" "$AD-$RUN"; do echo "--- $c"; docker logs "$c" 2>&1 | tail -25; done; exit 1; }
