@@ -11,19 +11,25 @@ CA="it-stepca"
 AD="it-adapter"
 WORK="$(mktemp -d "${WORK_ROOT:-/tmp}/adapter-it.XXXXXX")"
 IMAGE="${IMAGE:-warpgate-stepca-adapter:dev}"
+DEMO="${DEMO:-0}"                      # 1 = environnement de démonstration laissé en marche (make demo)
+HP="${DEMO_HTTP_PORT:-8888}"           # ports de Warpgate (écoute et publication identiques, sur 127.0.0.1 en démo)
+SP="${DEMO_SSH_PORT:-2222}"
+NETPUB="$NET-pub"
 SSHD="it-sshd"
 WG="it-warpgate"
 WGVOL="it-wg-data-$RUN"
 SSHD_IMAGE="adapter-it-sshd:$RUN"
 
 cleanup() {
+  jobs -p | xargs -r kill 2>/dev/null || true # le `sleep` de la démo
   docker rm -f "$AD-$RUN" "$CA-$RUN" "$SSHD-$RUN" "$WG-$RUN" >/dev/null 2>&1 || true
-  docker network rm "$NET" >/dev/null 2>&1 || true
+  docker network rm "$NET" "$NETPUB" >/dev/null 2>&1 || true
   docker volume rm "$WGVOL" >/dev/null 2>&1 || true
   docker rmi "$SSHD_IMAGE" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
+trap 'exit 130' INT TERM
 
 gorun() { # exécute la commande dans le conteneur Go, code monté en lecture seule
   docker run --rm --user "$UID_GID" -e HOME=/tmp -e GOPATH=/cache/go -e GOCACHE=/cache/build -e GOFLAGS=-mod=readonly -e GOPROXY=off \
@@ -76,9 +82,11 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
+if [ "$DEMO" != 1 ]; then
 echo "== tests d'intégration"
 gorun --network "$NET" -e ADAPTER_URL=https://adapter:8200 -e CA_URL="https://$CA:9000" -e WORK=/work -w /src \
   "$GO_IMAGE" go test -tags integration -count=1 -v ./integration/ || { docker logs "$AD-$RUN" | tail -30; exit 1; }
+fi
 if [ "${E2E:-0}" = 1 ]; then
   : "${WARPGATE_IMAGE:?}"
   echo "== bout en bout: cible sshd + Warpgate $WARPGATE_IMAGE"
@@ -94,15 +102,22 @@ if [ "${E2E:-0}" = 1 ]; then
   WG_TOKEN="$(head -c 24 /dev/urandom | base64 | tr -d '/+=')"
   docker volume create "$WGVOL" >/dev/null
   docker run --rm -e WARPGATE_ADMIN_PASSWORD="$WG_PASS" -v "$WGVOL":/data "$WARPGATE_IMAGE" unattended-setup \
-    --data-path /data --http-port 8888 --ssh-port 2222 --record-sessions --external-host warpgate \
+    --data-path /data --http-port "$HP" --ssh-port "$SP" --record-sessions --external-host "$([ "$DEMO" = 1 ] && echo localhost || echo warpgate)" \
     --host-key-verification auto-accept --listen-address 0.0.0.0 --if-config-exists skip >/dev/null
   # Warpgate détermine son adresse de pair par une résolution de route vers 1.1.1.1 (échec sur un réseau interne sans route):
   # WARPGATE_PEER_ADDRESS l'évite. Limite constatée (Warpgate 0.30.0): son client Vault n'utilise que des racines publiques intégrées (rustls, ca_certs vide, ni SSL_CERT_FILE ni
   # magasin système) et n'offre aucune option de CA privée: vers l'adaptateur il faut tls_skip_verify (WG_BACKEND_SKIP_VERIFY=1, défaut ici).
-  docker run -d --name "$WG-$RUN" --network "$NET" --network-alias warpgate --security-opt no-new-privileges --cap-drop ALL \
+  if [ "$DEMO" = 1 ]; then # démo: Warpgate seul sort sur un réseau publié, uniquement sur 127.0.0.1 de l'hôte
+    docker network create "$NETPUB" >/dev/null
+    WG_NET=(--network "$NETPUB" -p "127.0.0.1:$HP:$HP" -p "127.0.0.1:$SP:$SP")
+  else
+    WG_NET=(--network "$NET" --network-alias warpgate)
+  fi
+  docker run -d --name "$WG-$RUN" "${WG_NET[@]}" --security-opt no-new-privileges --cap-drop ALL \
     --read-only --tmpfs /tmp -e WARPGATE_ADMIN_TOKEN="$WG_TOKEN" \
-    -e WARPGATE_PEER_ADDRESS=warpgate:8888 \
+    -e WARPGATE_PEER_ADDRESS="warpgate:$HP" \
     -v "$WGVOL":/data "$WARPGATE_IMAGE" run --enable-admin-token >/dev/null
+  if [ "$DEMO" = 1 ]; then docker network connect --alias warpgate "$NET" "$WG-$RUN"; fi
   for i in $(seq 1 60); do
     if docker exec "$WG-$RUN" /usr/local/bin/warpgate healthcheck >/dev/null 2>&1; then break; fi
     if [ "$i" = 60 ]; then docker logs "$WG-$RUN" | tail -20; echo "Warpgate ne démarre pas" >&2; exit 1; fi
@@ -111,11 +126,37 @@ if [ "${E2E:-0}" = 1 ]; then
 
   e2e() { # $1 = phase, le reste = arguments de go test
     local phase="$1"; shift
-    gorun --network "$NET" -e WG_API=https://warpgate:8888 -e WG_SSH=warpgate:2222 -e WG_TOKEN="$WG_TOKEN" \
+    gorun --network "$NET" -e WG_API="https://warpgate:$HP" -e WG_SSH="warpgate:$SP" -e WG_TOKEN="$WG_TOKEN" \
       -e WG_ADMIN_PASSWORD="$WG_PASS" -e ADAPTER_TOKEN="$(cat "$WORK/token")" -e ADAPTER_URL=https://adapter:8200 \
       -e WG_BACKEND_SKIP_VERIFY="${WG_BACKEND_SKIP_VERIFY:-1}" -e E2E_PHASE="$phase" -w /src \
       "$GO_IMAGE" go test -tags e2e -count=1 -v "$@" ./integration/e2e/
   }
+  if [ "$DEMO" = 1 ]; then
+    e2e normal -run 'TestProvisionAndBackendHealth' >/dev/null || { for c in "$WG-$RUN" "$AD-$RUN"; do docker logs "$c" 2>&1 | tail -15; done; echo "configuration de Warpgate impossible" >&2; exit 1; }
+    cat <<EOF
+
+================================================================================
+ DÉMO PRÊTE (tout est local, rien ne sort de votre machine, Ctrl+C pour tout supprimer)
+
+ Navigateur : https://localhost:$HP/@warpgate   (certificat auto-signé : accepter l'avertissement)
+   identifiant : admin        mot de passe : $WG_PASS
+   Interface utilisateur : liste des cibles, terminal SSH dans le navigateur sur sshd-target.
+   Administration : https://localhost:$HP/@warpgate/admin  (Sessions et enregistrements, Config > Secret backends).
+
+ SSH depuis ce terminal :
+   ssh -p $SP -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin:sshd-target@localhost
+   (mot de passe ci-dessus ; une fois connecté : id, hostname ; le compte est "ops")
+
+ Cibles pièges (doivent échouer) : sshd-badprincipal, sshd-forbiddenrole, sshd-blockedpath
+   ssh -p $SP ... admin:sshd-badprincipal@localhost
+
+ Preuves dans un autre terminal :
+   docker logs $SSHD-$RUN 2>&1 | grep Accepted     # certificat accepté par sshd, avec l'identité warpgate:admin:<session>
+   docker logs $AD-$RUN 2>&1 | grep '"event":"sign"'  # journal d'audit de l'adaptateur
+================================================================================
+EOF
+    sleep 2147483647 & wait $! # `wait` laisse Ctrl+C déclencher le nettoyage tout de suite
+  fi
   e2e normal || { for c in "$WG-$RUN" "$SSHD-$RUN" "$AD-$RUN"; do echo "--- $c"; docker logs "$c" 2>&1 | tail -25; done; exit 1; }
 
   echo "== preuves côté cible et adaptateur"

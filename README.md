@@ -33,8 +33,20 @@ make integration    # vrai step-ca éphémère + adaptateur durci (voir integrat
 make e2e            # + Warpgate 0.30.0 réel et une cible sshd (Docker local, réseau interne)
 make security       # tout: format, vet, tests, fuzz, govulncheck, staticcheck, gosec, hadolint, trivy
 make build          # image warpgate-stepca-adapter:dev (environ 18 Mo, sans shell, non root)
+make demo          # environnement à essayer à la main : navigateur et ssh (voir « Essayer à la main »)
 make strix          # passe Strix (clé de modèle requise)
 ```
+
+## Essayer à la main (`make demo`)
+
+`make demo` démarre en Docker local, sur votre machine uniquement : step-ca éphémère, l'adaptateur, **Warpgate 0.30.0**, une cible sshd qui n'accepte que les certificats de la CA de test, puis configure Warpgate (backend de secrets, rôle, quatre cibles). Seuls deux ports sont ouverts, **sur 127.0.0.1** : 8888 (web) et 2222 (SSH). Un cadre affiche l'adresse, l'identifiant `admin` et un mot de passe aléatoire. **Ctrl+C supprime tout** (conteneurs, réseaux, volumes, secrets).
+
+1. **Navigateur** : `https://localhost:8888/@warpgate` (certificat auto-signé : accepter l'avertissement). Depuis Windows avec WSL2, `localhost` est transmis automatiquement. Se connecter avec `admin`. Dans la liste des cibles, ouvrir `sshd-target` : Warpgate ouvre un terminal dans le navigateur. Taper `id` : le compte est `ops`. L'administration (`/@warpgate/admin`) montre les sessions avec **l'enregistrement rejouable**, et `Config > Secret backends` la santé de l'adaptateur.
+2. **Terminal SSH** : `ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin:sshd-target@localhost` (même mot de passe). Warpgate demande un certificat à l'adaptateur, qui le fait signer par step-ca, puis se connecte à la cible avec.
+3. **Cibles qui doivent échouer** : `sshd-badprincipal` (compte hors liste blanche), `sshd-forbiddenrole` (rôle refusé à ce jeton), `sshd-blockedpath` (chemin interdit côté Warpgate). La connexion se ferme sans rien afficher.
+4. **Voir la preuve** dans un autre terminal (les noms exacts sont dans le cadre affiché) : le journal de sshd contient `Accepted publickey for ops ... ED25519-CERT ... ID warpgate:admin:<session> ... CA ...`, et celui de l'adaptateur une ligne `"event":"sign"` par session avec l'empreinte de la clé (jamais la clé complète).
+
+Limites de la démo : certificats de test auto-signés (donc `tls_skip_verify` côté Warpgate), et pas de SSO. Pour changer les ports : `DEMO_HTTP_PORT=18888 DEMO_SSH_PORT=12222 make demo`.
 
 ## Mise en place
 
