@@ -18,17 +18,21 @@ GOSEC       := github.com/securego/gosec/v2/cmd/gosec@v2.29.0
 UID := $(shell id -u)
 GID := $(shell id -g)
 CACHE := warpgate-adapter-gocache
+# `make GORUN= vet test ...` exécute les mêmes commandes directement (utilisé par l'intégration continue, déjà dans un conteneur Go).
 GORUN = docker run --rm --user $(UID):$(GID) -e HOME=/tmp -e GOPATH=/cache/go -e GOCACHE=/cache/build \
-        -e GOFLAGS=-mod=readonly -v $(CACHE):/cache -v "$(CURDIR)":/src:ro -w /src $(GO_IMAGE)
+        -e GOFLAGS=-mod=readonly -e CGO_ENABLED=1 -v $(CACHE):/cache -v "$(CURDIR)":/src:ro -w /src $(GO_IMAGE)
 
 .PHONY: demo e2e help init-cache tidy fmt vet test cover fuzz vuln lint sec build image hadolint scan integration security strix
 
 help: ## Liste des commandes
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
 
-init-cache: ## Crée le volume de cache Go (une fois)
+init-cache: ## Crée le volume de cache Go et y télécharge les modules (une fois, seul moment avec le réseau)
 	docker volume create $(CACHE) >/dev/null
 	docker run --rm --user 0 -v $(CACHE):/cache $(GO_IMAGE) chown -R $(UID):$(GID) /cache
+	@# Les étapes suivantes (integration, e2e) tournent hors ligne (GOPROXY=off) : sans ce remplissage, un cache neuf (CI) échoue.
+	docker run --rm --user $(UID):$(GID) -e HOME=/tmp -e GOPATH=/cache/go -e GOCACHE=/cache/build \
+	  -v $(CACHE):/cache -v "$(CURDIR)":/src -w /src $(GO_IMAGE) go mod download
 
 tidy: ## go mod tidy (seule commande qui écrit dans le dépôt)
 	docker run --rm --user $(UID):$(GID) -e HOME=/tmp -e GOPATH=/cache/go -e GOCACHE=/cache/build \
@@ -41,9 +45,7 @@ vet: ## go vet
 	$(GORUN) go vet ./...
 
 test: ## Tests unitaires avec détecteur de courses
-	docker run --rm --user $(UID):$(GID) -e HOME=/tmp -e GOPATH=/cache/go -e GOCACHE=/cache/build \
-	  -e GOFLAGS=-mod=readonly -e CGO_ENABLED=1 -v $(CACHE):/cache -v "$(CURDIR)":/src:ro -w /src $(GO_IMAGE) \
-	  go test -race -count=1 ./...
+	$(GORUN) go test -race -count=1 ./...
 
 cover: ## Couverture
 	$(GORUN) go test -count=1 -cover ./...
@@ -52,13 +54,13 @@ fuzz: ## Fuzzing court (30 s par cible)
 	$(GORUN) sh -c 'for t in $$(grep -h "^func Fuzz" *_test.go | sed "s/func \(Fuzz[A-Za-z0-9_]*\).*/\1/"); do go test -run=^$$ -fuzz=^$$t$$ -fuzztime=30s . || exit 1; done'
 
 vuln: ## Dépendances et bibliothèque standard vulnérables
-	$(GORUN) sh -c 'go install $(GOVULNCHECK) && /cache/go/bin/govulncheck ./...'
+	$(GORUN) sh -c 'go install $(GOVULNCHECK) && $$(go env GOPATH)/bin/govulncheck ./...'
 
 lint: ## staticcheck
-	$(GORUN) sh -c 'go install $(STATICCHECK) && /cache/go/bin/staticcheck ./...'
+	$(GORUN) sh -c 'go install $(STATICCHECK) && $$(go env GOPATH)/bin/staticcheck ./...'
 
 sec: ## gosec (analyse statique de sécurité)
-	$(GORUN) sh -c 'go install $(GOSEC) && /cache/go/bin/gosec -quiet ./...'
+	$(GORUN) sh -c 'go install $(GOSEC) && $$(go env GOPATH)/bin/gosec -quiet ./...'
 
 build: ## Binaire statique dans l'image
 	docker build -t $(IMAGE) .

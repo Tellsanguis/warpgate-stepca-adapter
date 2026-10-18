@@ -1,0 +1,41 @@
+name: ci
+
+# Se déclenche seulement quand le code, ses dépendances, l'image ou les tests changent : pas pour la documentation.
+# Une mise à jour de dépendance (go.mod, go.sum) ou d'image (Dockerfile, Makefile) passe donc par ce contrôle.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.go'
+      - go.mod
+      - go.sum
+      - Dockerfile
+      - Makefile
+      - integration/**
+      - .forgejo/workflows/**
+  pull_request:
+    paths:
+      - '**.go'
+      - go.mod
+      - go.sum
+      - Dockerfile
+      - Makefile
+      - integration/**
+      - .forgejo/workflows/**
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    # Le job tourne dans l'image Go épinglée (la même que le Makefile) : aucun accès Docker nécessaire.
+    runs-on: docker
+    timeout-minutes: 20
+    container:
+      image: golang@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      # GORUN vide : les cibles du Makefile s'exécutent directement dans ce conteneur (voir le Makefile).
+      # Format, vet, tests avec détecteur de courses, fuzzing court, govulncheck, staticcheck, gosec.
+      - run: make GORUN= fmt vet test fuzz vuln lint sec
