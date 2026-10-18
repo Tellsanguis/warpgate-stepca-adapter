@@ -4,7 +4,7 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
 PubkeyAuthentication yes
-# Certificats de la CA de test seulement, principal = nom du compte (comme le rôle step_ssh_host de la collection).
+# Certificats de la CA de test seulement, principal = nom du compte (configuration usuelle d'un serveur qui fait confiance à une CA SSH).
 TrustedUserCAKeys /etc/ssh/ca.pub
 AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u
 AuthorizedKeysFile none

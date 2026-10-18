@@ -4,7 +4,7 @@
 
 1. génère des secrets jetables (`integration/gen`) : provisioner JWK, TLS, jeton, configuration ;
 2. démarre un **vrai step-ca** (image de production épinglée) sur un réseau Docker `--internal` (aucun accès à Internet ni à l'hôte) ;
-3. y ajoute le provisioner `warpgate-ops` et son modèle SSH à principal fixe `ops` (même technique que `ansible-stepca` : édition de `ca.json` puis redémarrage) ;
+3. y ajoute le provisioner `warpgate-ops` et son modèle SSH à principal fixe `ops` (édition de `ca.json` puis redémarrage) ;
 4. lance l'image de l'adaptateur en mode durci (lecture seule, sans capacités, `no-new-privileges`, 128 Mo) ;
 5. exécute `integration_test.go` (étiquette `integration`) depuis un conteneur Go du même réseau ;
 6. supprime conteneurs, réseau et fichiers.

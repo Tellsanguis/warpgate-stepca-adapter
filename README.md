@@ -1,6 +1,8 @@
 # warpgate-stepca-adapter
 
-Petit service Go (environ 900 lignes hors tests, 5 fichiers) qui permet à **Warpgate** v0.30.0 d'obtenir des certificats SSH éphémères signés par **step-ca**, sans installer Vault ni OpenBao. Warpgate croit parler à un moteur SSH de Vault ; l'adaptateur traduit l'appel en demande de signature à step-ca.
+> **English summary.** Small Go service that lets [Warpgate](https://github.com/warp-tech/warpgate) (v0.30.0) get short-lived SSH certificates signed by [step-ca](https://github.com/smallstep/certificates), by emulating the one Vault SSH secrets-engine call Warpgate makes. No Vault or OpenBao needed. Fail-closed, about 1,100 lines of Go, tested against a real step-ca and a real Warpgate in Docker (`make e2e`, `make demo`). The documentation is in French. Not affiliated with Smallstep, Warp Tech or HashiCorp. License: 0BSD.
+
+Petit service Go (environ 1 100 lignes hors tests, 6 fichiers) qui permet à **Warpgate** v0.30.0 d'obtenir des certificats SSH éphémères signés par **step-ca**, sans installer Vault ni OpenBao. Warpgate croit parler à un moteur SSH de Vault ; l'adaptateur traduit l'appel en demande de signature à step-ca.
 
 ```
 Warpgate --HTTPS (TLS 1.3, jeton)--> adaptateur --HTTPS (racine épinglée, jeton JWK de 30 s)--> step-ca
@@ -8,7 +10,7 @@ Warpgate --HTTPS (TLS 1.3, jeton)--> adaptateur --HTTPS (racine épinglée, jeto
    GET  /v1/auth/token/lookup-self                   GET  /1.0/ssh/roots
 ```
 
-Contexte : `../Warpgate/docs/adaptateur-stepca.md` (spécification) et `security/threat-model.md` (menaces, contrôles et tests associés).
+Voir aussi : `docs/stepca-setup.md` (configurer step-ca, les cibles et Warpgate) et `security/threat-model.md` (menaces, contrôles et tests associés).
 
 ## Ce qui est garanti
 
@@ -50,7 +52,7 @@ Limites de la démo : certificats de test auto-signés (donc `tls_skip_verify` c
 
 ## Mise en place
 
-1. Dans step-ca : provisioner JWK dédié et modèle SSH à principal fixe (voir `../Warpgate/docs/pr-ansible-stepca.md`).
+1. Dans step-ca : provisioner JWK dédié et modèle SSH à principal fixe (voir `docs/stepca-setup.md`).
 2. Configuration : `deploy/config.example.json`. Le fichier JWK chiffré et son mot de passe sont les secrets du provisioner (modes 0600 exigés).
 3. Générer un jeton long et aléatoire pour Warpgate ; seule son empreinte va dans la configuration (`printf %s "$JETON" | sha256sum`).
 4. Warpgate : ajouter un backend de secrets Vault pointant vers `https://<hôte>:8200` avec ce jeton, limiter les chemins autorisés à `ssh/sign/<rôle>`, et déclarer les cibles SSH en authentification par certificat avec ce rôle.
@@ -58,7 +60,7 @@ Limites de la démo : certificats de test auto-signés (donc `tls_skip_verify` c
 
 ## Durées : le minimum de 5 minutes de step-ca
 
-step-ca refuse tout certificat SSH plus court que `minUserSSHCertDuration` (5 minutes par défaut, valeur des claims de la CA de production). Warpgate 0.30.0 demande toujours `ttl = 5m` (constante dans son code). Les trois valeurs doivent donc rester cohérentes :
+step-ca refuse tout certificat SSH plus court que `minUserSSHCertDuration` (5 minutes par défaut). Warpgate 0.30.0 demande toujours `ttl = 5m` (constante dans son code). Les trois valeurs doivent donc rester cohérentes :
 
 | Réglage | Contrainte |
 |---|---|
@@ -70,7 +72,7 @@ Si `max_ttl` est inférieur au minimum de la CA, ou si un client demande moins, 
 
 ## Certificat TLS de l'adaptateur : Let's Encrypt
 
-Pour le HTTPS, utiliser un certificat Let's Encrypt (comme pour le reste de vos services web) et non un certificat step-ca : **Warpgate 0.30.0 ne vérifie que les racines publiques** (voir « Constats »). Avec Let's Encrypt, Warpgate peut vérifier le certificat de l'adaptateur et `tls_skip_verify` doit rester à **faux** en production. Conditions :
+Pour le HTTPS, utiliser un certificat d'une CA publique (par exemple Let's Encrypt) et non un certificat d'une CA privée comme step-ca : **Warpgate 0.30.0 ne vérifie que les racines publiques** (voir « Constats »). Avec Let's Encrypt, Warpgate peut vérifier le certificat de l'adaptateur et `tls_skip_verify` doit rester à **faux** en production. Conditions :
 
 - un nom DNS public pour l'adaptateur (défi DNS-01 si l'hôte n'est pas joignable depuis Internet) ; le nom figure dans les journaux de transparence des certificats ;
 - `address` du backend dans Warpgate = ce nom (pas l'IP) ;
@@ -83,7 +85,7 @@ Pour le HTTPS, utiliser un certificat Let's Encrypt (comme pour le reste de vos 
 |---|---|---|
 | Rotation de la CA SSH de step-ca | Les clés CA SSH sont lues au démarrage et épinglées. Après rotation, les certificats arrivent signés par une clé inconnue : refus (échec fermé, 502), jamais d'acceptation par erreur. | Ajouter « redémarrer l'adaptateur » à la procédure de rotation, qui de toute façon impose de mettre à jour `TrustedUserCAKeys` sur toutes les VMs. |
 | Quota de signatures | Par jeton, fenêtre fixe d'une minute (rafale possible jusqu'à 2 fois le quota à la jonction de deux fenêtres). | Dimensionner `rate_per_minute` au nombre de sessions SSH par minute attendu pour ce client. |
-| Limiteur d'échecs d'authentification | Global (30 par minute), non lié à l'IP. Après 30 échecs, les refus répondent 429 au lieu de 403 ; les requêtes valides ne sont jamais bloquées. | Seul Warpgate doit pouvoir joindre le port (nftables, FortiGate). Si le filtrage est en place, un 429 ne peut venir que d'un Warpgate mal configuré (jeton ou rôle erroné) : c'est visible dans le journal (`trop_d_echecs`). |
+| Limiteur d'échecs d'authentification | Global (30 par minute), non lié à l'IP. Après 30 échecs, les refus répondent 429 au lieu de 403 ; les requêtes valides ne sont jamais bloquées. | Seul Warpgate doit pouvoir joindre le port (nftables, pare-feu périmétrique). Si le filtrage est en place, un 429 ne peut venir que d'un Warpgate mal configuré (jeton ou rôle erroné) : c'est visible dans le journal (`trop_d_echecs`). |
 | `ttl` en secondes nues (`"300"`) | Refusé : seule une durée Go (`5m`) est acceptée. | Warpgate envoie `5m`. Un autre client Vault devrait être adapté. |
 | Clés JSON dupliquées dans la requête | La dernière valeur est retenue (comportement de `encoding/json`), sans erreur. | Sans conséquence ici : l'adaptateur valide et signe la même valeur finale (liste blanche de principals), et l'accès d'un utilisateur est fixé par ses rôles Warpgate (un rôle = une cible = un rôle de signature), pas par le corps de la requête. Le risque n'existerait que si un intermédiaire validait une autre version du même JSON ; il n'y en a pas. |
 | Durée minimale | Voir la section précédente. | Cohérence entre claims step-ca, `max_ttl` et `ttl` demandé. |
@@ -101,3 +103,7 @@ Pour le HTTPS, utiliser un certificat Let's Encrypt (comme pour le reste de vos 
 4. L'écoute IPv6 par défaut (`::`) échoue sur un réseau sans IPv6 : `--listen-address 0.0.0.0` à l'initialisation.
 
 Assisté par Claude Code.
+
+## Licence
+
+[0BSD](LICENSE) pour le code de ce dépôt : aucune condition d'utilisation, de copie ou de modification. Les dépendances et composants tiers gardent leur licence (`NOTICE.md`). Pour signaler une faille : `SECURITY.md`.
