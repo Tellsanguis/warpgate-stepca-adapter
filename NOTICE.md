@@ -2,7 +2,7 @@
 
 ## Strix
 
-Utilisé comme outil externe (`scripts/strix.sh`), jamais copié.
+Utilisé comme outil externe (`scripts/strix.sh`), jamais copié. Voir l'en-tête de `scripts/strix.sh` pour les précautions d'usage.
 
 ## Dépendances Go
 

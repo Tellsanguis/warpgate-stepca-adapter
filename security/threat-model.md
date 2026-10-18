@@ -74,4 +74,5 @@ Portée : le service `warpgate-stepca-adapter` (Go) qui reçoit les demandes de 
 |---|---|---|
 | 2026-10-20 | Tests unitaires (course), fuzzing, `govulncheck`, `staticcheck`, `gosec`, `hadolint`, `trivy`, intégration contre step-ca 0.30.2, bout en bout avec Warpgate 0.30.0 et un sshd cible | Tous passent (`make security`, `make e2e`) |
 | 2026-10-20 | Revue de code indépendante et revue manuelle de sécurité | 10 constats mineurs traités ou documentés |
+| 2026-10-20 | Passe Strix 1.7.0 (agents IA de test d'intrusion, boîte blanche statique, mode standard, modèle GLM-5.2), en complément des outils déterministes et des revues ci-dessus | 1 constat de gravité faible (extensions du certificat non vérifiées), corrigé ; aucune autre vulnérabilité confirmée. Cette passe est statique (pas d'attaque dynamique) et n'utilise qu'un modèle |
 | à faire | Revue de sécurité complémentaire avant une première mise en production | |

@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # Passe Strix (agents IA de test d'intrusion) en boîte blanche sur le code source de l'adaptateur.
 # N'installe rien, ne lit aucune clé ailleurs que dans l'environnement.
+#
+# Prérequis : Docker, Strix (pipx install strix-agent, version 1.7.0 relue), STRIX_LLM (modèle, format litellm) et
+# LLM_API_KEY (ou LLM_API_BASE pour un modèle local). Précautions :
+#  - le code source est envoyé au fournisseur du modèle (sauf modèle local) ;
+#  - Strix exécute de vrais exploits contre sa cible : ici une copie du code source, jamais un service réel ;
+#  - sa télémétrie est active par défaut, elle est coupée ci-dessous ; il enregistre aussi la clé d'API dans
+#    ~/.strix : HOME jetable ci-dessous ;
+#  - les résultats (strix_runs/) contiennent des détails d'exploitation : STRIX_OUT permet de les écrire hors du dépôt ;
+#  - un constat n'a de valeur qu'une fois reproduit par un test ; un modèle de langage peut aussi se tromper.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

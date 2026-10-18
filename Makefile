@@ -89,5 +89,5 @@ demo-test: build ## Teste la démo sans intervention : vrai client ssh et requê
 
 security: fmt vet test fuzz vuln lint sec hadolint scan ## Toute la chaîne de sécurité (hors Strix)
 
-strix: ## Passe Strix (clé de modèle requise)
+strix: ## Passe Strix optionnelle (clé de modèle requise, voir l'en-tête de scripts/strix.sh)
 	./scripts/strix.sh
