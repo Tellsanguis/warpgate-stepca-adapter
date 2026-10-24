@@ -486,6 +486,20 @@ func TestSignAcceptsPermitPtyOnlyOrNoExtension(t *testing.T) {
 	}
 }
 
+// source-address restreint l'usage du certificat: la CA peut l'ajouter à son modèle sans que l'adaptateur le refuse.
+func TestSignAcceptsSourceAddress(t *testing.T) {
+	f := newFakeCA(t)
+	f.before = func(c *ssh.Certificate) { c.CriticalOptions = map[string]string{"source-address": "192.0.2.10/32"} }
+	rs, _ := loadRoleSigner(f.prov.role)
+	cert, err := f.client(t).sign(context.Background(), rs, validRequest(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cert.CriticalOptions["source-address"] != "192.0.2.10/32" {
+		t.Errorf("source-address perdue: %v", cert.CriticalOptions)
+	}
+}
+
 // Fuzzing de la dernière barrière: pour des certificats SIGNÉS par la bonne CA (la signature est donc toujours valable) mais aux
 // champs quelconques, check() ne doit jamais accepter autre chose que ce qui a été demandé.
 func FuzzCheckCertificate(f *testing.F) {

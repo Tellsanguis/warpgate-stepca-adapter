@@ -243,7 +243,8 @@ func (c *caClient) check(cert *ssh.Certificate, v *validated) error {
 	if !c.isUserCA(cert.SignatureKey) {
 		return errors.New("certificat refusé: signé par une autorité inconnue")
 	}
-	chk := ssh.CertChecker{Clock: c.now}
+	// source-address ne fait que restreindre l'usage du certificat (contrôlé par sshd): le modèle de la CA peut l'ajouter.
+	chk := ssh.CertChecker{Clock: c.now, SupportedCriticalOptions: []string{"source-address"}}
 	if err := chk.CheckCert(v.Principal, cert); err != nil {
 		return fmt.Errorf("certificat refusé: %w", err)
 	}

@@ -37,6 +37,7 @@ Entrée à ajouter dans `authority.provisioners` de `ca.json`, puis redémarrer 
 
 - Un provisioner par jeu de comptes autorisés (par exemple un pour `ops`, un autre pour un compte à droits réduits) : le principal est fixé par le modèle, donc **un rôle de l'adaptateur correspond à un provisioner**.
 - L'adaptateur n'accepte que l'extension `permit-pty` : le modèle ne doit pas en émettre d'autres.
+- Le modèle peut ajouter l'option critique `source-address` (adresse du bastion) : elle ne fait que restreindre l'usage du certificat, contrôlée par `sshd`, et l'adaptateur l'accepte. Toute autre option critique (`force-command`, ...) reste refusée.
 - Le fichier d'`encryptedKey` et son mot de passe sont les deux secrets que lit l'adaptateur (`key_file`, `password_file`). `integration/gen/main.go` montre une génération qui fonctionne ; l'adaptateur attend bien la forme compacte du JWE.
 - Durées : voir « Durées » dans le README (minimum de 5 minutes de step-ca, Warpgate demande `5m`).
 
